@@ -5,9 +5,10 @@
 #include <unordered_set>
 #include <cstdlib>
 #include <ctime>
-#include <bits/stdc++.h>
+#include <chrono>
 
 using namespace std;
+using namespace chrono;
 
 // Directions for moving the empty tile (up, down, left, right)
 const vector<pair<int, int>> directions = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
@@ -99,14 +100,19 @@ State generateRandomState() {
     return {puzzle, emptyX, emptyY, ""};
 }
 
-// Perform Iterative Deepening Search
-bool depthLimitedSearch(State currentState, int limit, unordered_set<State, Hash>& visited, string& resultPath) {
+// Perform Depth-Limited Search with timeout check
+bool depthLimitedSearch(State currentState, int limit, unordered_set<State, Hash>& visited, string& resultPath, const steady_clock::time_point& startTime, int timeout) {
     if (isGoal(currentState.puzzle)) {
         resultPath = currentState.path;
         return true;
     }
-    
+
     if (limit == 0) return false;
+
+    // Check for timeout
+    if (duration_cast<seconds>(steady_clock::now() - startTime).count() >= timeout) {
+        return false;
+    }
 
     visited.insert(currentState);
 
@@ -120,7 +126,7 @@ bool depthLimitedSearch(State currentState, int limit, unordered_set<State, Hash
             State nextState = {currentState.puzzle, newX, newY, currentState.path + directionNames[i] + " "};
 
             if (visited.find(nextState) == visited.end()) {
-                if (depthLimitedSearch(nextState, limit - 1, visited, resultPath)) {
+                if (depthLimitedSearch(nextState, limit - 1, visited, resultPath, startTime, timeout)) {
                     return true;
                 }
             }
@@ -133,16 +139,22 @@ bool depthLimitedSearch(State currentState, int limit, unordered_set<State, Hash
     return false;
 }
 
-// Iterative Deepening Search to solve the 8-tile puzzle
-string iterativeDeepeningSearch(State initialState) {
+// Iterative Deepening Search with timeout mechanism
+bool iterativeDeepeningSearch(State initialState, string& resultPath, int timeout) {
     int depth = 0;
-    string resultPath;
+    steady_clock::time_point startTime = steady_clock::now();
 
     while (true) {
         unordered_set<State, Hash> visited;
-        if (depthLimitedSearch(initialState, depth, visited, resultPath)) {
-            return resultPath;
+        if (depthLimitedSearch(initialState, depth, visited, resultPath, startTime, timeout)) {
+            return true;
         }
+
+        // Check for timeout
+        if (duration_cast<seconds>(steady_clock::now() - startTime).count() >= timeout) {
+            return false;
+        }
+
         ++depth;
     }
 }
@@ -167,31 +179,36 @@ void applyMove(State& state, const string& move) {
 
 int main() {
     srand(time(0));
+    const int TIMEOUT = 30;  // Timeout in seconds
 
-    State initialState;
-    do {
-        initialState = generateRandomState();
-    } while (!isSolvable(initialState.puzzle));
+    while (true) {
+        State initialState;
+        do {
+            initialState = generateRandomState();
+        } while (!isSolvable(initialState.puzzle));
 
-    cout << "Initial State:" << endl;
-    printPuzzle(initialState.puzzle);
+        cout << "Initial State:" << endl;
+        printPuzzle(initialState.puzzle);
 
-    string solution = iterativeDeepeningSearch(initialState);
+        string solution;
+        bool solved = iterativeDeepeningSearch(initialState, solution, TIMEOUT);
 
-    if (!solution.empty()) {
-        cout << "Solution found!" << endl;
-        cout << "Sequence of moves: " << solution << endl;
+        if (solved && !solution.empty()) {
+            cout << "Solution found!" << endl;
+            cout << "Sequence of moves: " << solution << endl;
 
-        // Apply each move and print the matrix
-        State currentState = initialState;
-        size_t pos = 0;
-        while ((pos = solution.find(' ')) != string::npos) {
-            string move = solution.substr(0, pos);
-            solution.erase(0, pos + 1);
-            applyMove(currentState, move);
+            // Apply each move and print the matrix
+            State currentState = initialState;
+            size_t pos = 0;
+            while ((pos = solution.find(' ')) != string::npos) {
+                string move = solution.substr(0, pos);
+                solution.erase(0, pos + 1);
+                applyMove(currentState, move);
+            }
+            break;  // Exit the loop once a solution is found
+        } else {
+            cout << "Timeout reached. Generating a new initial state..." << endl;
         }
-    } else {
-        cout << "No solution found." << endl;
     }
 
     return 0;
